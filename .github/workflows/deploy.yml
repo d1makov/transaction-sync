@@ -1,0 +1,69 @@
+name: Deploy to Ubuntu Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            # Create directory if it doesn't exist
+            sudo mkdir -p /opt/ppchange_api
+            sudo chown $USER:$USER /opt/ppchange_api
+
+            # Navigate to project directory
+            cd /opt/ppchange_api
+
+            # Clone or pull the repository
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/${{ github.repository }}.git .
+            fi
+
+            # Create virtual environment if it doesn't exist
+            if [ ! -d "venv" ]; then
+              python3 -m venv venv
+            fi
+
+            # Activate venv and install dependencies
+            source venv/bin/activate
+            pip install --upgrade pip
+            pip install -r requirements.txt
+
+            # Create .env file from secrets
+            cat > .env << 'EOF'
+            PPCHANGE_API_URL=${{ secrets.PPCHANGE_API_URL }}
+            GOOGLE_SHEET_NAME=admin
+            WORKSHEET_NAME=ppchange_transactions
+            CREDENTIALS_PATH=/opt/ppchange_api/credentials.json
+            EMAIL_LIST=${{ secrets.EMAIL_LIST }}
+            EOF
+
+            # Decode and write credentials.json from base64 secret
+            echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' | base64 -d > credentials.json
+            chmod 600 credentials.json
+
+            # Setup cron job if not already exists
+            CRON_CMD="0 */6 * * * cd /opt/ppchange_api && source venv/bin/activate && python api_transactions.py >> /var/log/ppchange_api.log 2>&1"
+            (crontab -l 2>/dev/null | grep -v "ppchange_api" ; echo "$CRON_CMD") | crontab -
+
+            # Create log file if it doesn't exist
+            sudo touch /var/log/ppchange_api.log
+            sudo chown $USER:$USER /var/log/ppchange_api.log
+
+            echo "Deployment completed successfully!"
