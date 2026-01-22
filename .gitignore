@@ -2,6 +2,11 @@
 credentials.json
 .env
 
+# Unused scripts (kept locally)
+client_sheets.py
+only_two_autofill.py
+two.py
+
 # Python
 *.pyc
 __pycache__/
