@@ -1,3 +1,7 @@
+"""
+PPChange API Transaction Sync
+Fetches transactions and syncs to Google Sheets
+"""
 import os
 import requests
 import json
