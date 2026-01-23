@@ -14,7 +14,8 @@ if [ ! -f "$LOG_FILE" ]; then
 fi
 
 # Define the cron job (runs every 6 hours)
-CRON_CMD="0 */6 * * * cd $DEPLOY_PATH && source venv/bin/activate && python api_transactions.py >> $LOG_FILE 2>&1"
+# Use full path to venv python - avoids 'source' which doesn't work in cron's /bin/sh
+CRON_CMD="0 */6 * * * cd $DEPLOY_PATH && $DEPLOY_PATH/venv/bin/python api_transactions.py >> $LOG_FILE 2>&1"
 
 # Remove existing ppchange_api cron entries and add the new one
 (crontab -l 2>/dev/null | grep -v "ppchange_api" ; echo "$CRON_CMD") | crontab -
