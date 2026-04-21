@@ -46,48 +46,85 @@ def fetch_data():
         return []
 
 
-def get_existing_ids():
+def load_existing_rows():
     try:
-        # Get all values from the first column (IDs).
-        # Assuming the first row is the header, so we skip it.
-        all_ids = sheet.col_values(1)[1:]
-        return set(all_ids)
+        values = sheet.get_all_values()
     except Exception as e:
         print("Error reading sheet:", e)
-        return set()
+        return {}
+    by_id = {}
+    for row_num, row in enumerate(values[1:], start=2):
+        if not row or not row[0]:
+            continue
+        by_id[row[0]] = (row_num, row[:13])
+    return by_id
 
 
-def insert_new_rows(transactions, existing_ids):
+def build_row(tx):
+    row = [
+        tx["id"],
+        tx["transaction_id"],
+        tx["user_id"],
+        datetime.utcfromtimestamp(int(tx["timestamp"])).strftime("%Y-%m-%d %H:%M:%S"),
+        tx["description"],
+        tx["paypal_email"],
+        tx["total"],
+        tx["fee"],
+        tx["commission"],
+        tx["summa"],
+        tx.get("currency", ""),
+        tx["status"],
+    ]
+    for idx in (6, 7, 8, 9):
+        row[idx] = str(row[idx]).replace(".", ",")
+    return [str(c) for c in row]
+
+
+def sync_rows(transactions, existing_by_id):
     new_rows = []
+    updates = []
+
     for tx in transactions:
-        # Convert tx["id"] to string for comparison.
-        if str(tx["id"]) not in existing_ids:
-            row = [
-                tx["id"],
-                tx["transaction_id"],
-                tx["user_id"],
-                datetime.utcfromtimestamp(int(tx["timestamp"])).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                ),
-                tx["description"],
-                tx["paypal_email"],
-                tx["total"],
-                tx["fee"],
-                tx["commission"],
-                tx["summa"],
-                tx["status"],
-            ]
-            # For columns G (index 6) through J (index 9), replace "." with ","
-            for idx in [6, 7, 8, 9]:
-                row[idx] = str(row[idx]).replace(".", ",")
-            new_rows.append(row)
+        tx_id = str(tx["id"])
+        new_row = build_row(tx)
+
+        if tx_id not in existing_by_id:
+            new_rows.append(new_row)
+            continue
+
+        row_num, old_row = existing_by_id[tx_id]
+        old_row = (old_row + [""] * 13)[:13]
+        old_api_cols = old_row[:12]
+        old_m = old_row[12]
+
+        if new_row == old_api_cols:
+            continue
+
+        if new_row[9] != old_api_cols[9]:
+            try:
+                new_summa = float(new_row[9].replace(",", "."))
+                old_summa = float(old_api_cols[9].replace(",", ".")) if old_api_cols[9] else 0.0
+                diff_cell = f"{new_summa - old_summa:.2f}".replace(".", ",")
+            except ValueError:
+                diff_cell = old_m
+        else:
+            diff_cell = old_m
+        updates.append((row_num, new_row, diff_cell))
+
+    if updates:
+        payload = [
+            {"range": f"A{row_num}:M{row_num}", "values": [new_row + [diff_cell]]}
+            for row_num, new_row, diff_cell in updates
+        ]
+        sheet.batch_update(payload, value_input_option="USER_ENTERED")
+        print(f"Updated {len(updates)} changed rows.")
 
     if new_rows:
-        # Inserts new records at row 2, moving the older ones lower.
         sheet.insert_rows(new_rows, row=2, value_input_option="USER_ENTERED")
         print(f"Inserted {len(new_rows)} new rows.")
-    else:
-        print("No new transactions to insert.")
+
+    if not updates and not new_rows:
+        print("No changes.")
 
 
 def update_email_sums():
@@ -158,8 +195,8 @@ def normalize_emails():
 
 def main():
     transactions = fetch_data()
-    existing_ids = get_existing_ids()
-    insert_new_rows(transactions, existing_ids)
+    existing_by_id = load_existing_rows()
+    sync_rows(transactions, existing_by_id)
     # normalize_emails()
     # update_email_sums()
 
