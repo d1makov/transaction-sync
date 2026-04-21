@@ -80,6 +80,30 @@ def build_row(tx):
     return [str(c) for c in row]
 
 
+# Column indices (in build_row output) whose values come back from Sheets as
+# numbers — Sheets strips trailing zeros under USER_ENTERED, so "90,00" round-trips
+# as "90". Compare these as floats, not strings.
+NUMERIC_COLS = (6, 7, 8, 9)
+
+
+def _cells_equal(new_cell, old_cell, numeric):
+    if not numeric:
+        return new_cell == old_cell
+    try:
+        return float(new_cell.replace(",", ".") or "0") == float(
+            old_cell.replace(",", ".") or "0"
+        )
+    except ValueError:
+        return new_cell == old_cell
+
+
+def _rows_equal(new_row, old_row):
+    return all(
+        _cells_equal(n, o, i in NUMERIC_COLS)
+        for i, (n, o) in enumerate(zip(new_row, old_row))
+    )
+
+
 def sync_rows(transactions, existing_by_id):
     new_rows = []
     updates = []
@@ -97,10 +121,10 @@ def sync_rows(transactions, existing_by_id):
         old_api_cols = old_row[:12]
         old_m = old_row[12]
 
-        if new_row == old_api_cols:
+        if _rows_equal(new_row, old_api_cols):
             continue
 
-        if new_row[9] != old_api_cols[9]:
+        if not _cells_equal(new_row[9], old_api_cols[9], numeric=True):
             try:
                 new_summa = float(new_row[9].replace(",", "."))
                 old_summa = float(old_api_cols[9].replace(",", ".")) if old_api_cols[9] else 0.0
