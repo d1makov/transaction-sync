@@ -85,6 +85,18 @@ def build_row(tx):
 # as "90". Compare these as floats, not strings.
 NUMERIC_COLS = (6, 7, 8, 9)
 
+# Columns that look numeric but must stay as text so leading zeros survive the
+# USER_ENTERED round-trip. Prefix with "'" on write; Sheets displays verbatim.
+TEXT_COLS = (1,)
+
+
+def _as_write_row(row):
+    out = list(row)
+    for i in TEXT_COLS:
+        if i < len(out) and out[i] and not out[i].startswith("'"):
+            out[i] = "'" + out[i]
+    return out
+
 
 def _cells_equal(new_cell, old_cell, numeric):
     if not numeric:
@@ -137,14 +149,14 @@ def sync_rows(transactions, existing_by_id):
 
     if updates:
         payload = [
-            {"range": f"A{row_num}:M{row_num}", "values": [new_row + [diff_cell]]}
+            {"range": f"A{row_num}:M{row_num}", "values": [_as_write_row(new_row) + [diff_cell]]}
             for row_num, new_row, diff_cell in updates
         ]
         sheet.batch_update(payload, value_input_option="USER_ENTERED")
         print(f"Updated {len(updates)} changed rows.")
 
     if new_rows:
-        sheet.insert_rows(new_rows, row=2, value_input_option="USER_ENTERED")
+        sheet.insert_rows([_as_write_row(r) for r in new_rows], row=2, value_input_option="USER_ENTERED")
         print(f"Inserted {len(new_rows)} new rows.")
 
     if not updates and not new_rows:
