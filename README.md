@@ -81,3 +81,46 @@ See `.env.example`. `sync_auto.py` adds two optional vars (defaults shown there)
 0  * * * * cd /opt/ppchange_api && /opt/ppchange_api/venv/bin/python api_transactions.py >> /var/log/ppchange_api.log 2>&1
 15 * * * * cd /opt/ppchange_api && /opt/ppchange_api/venv/bin/python sync_auto.py        >> /var/log/ppchange_auto.log 2>&1
 ```
+
+## Deployment & operations (read before changing anything)
+
+Deployment is **fully driven by `.github/workflows/deploy.yml`** (GitHub Actions,
+`appleboy/ssh-action`, secrets `SERVER_HOST` / `SERVER_USER` / `SERVER_PASSWORD`).
+It runs on **every push to `main`** (and via manual `workflow_dispatch`) and, on
+the server, it:
+
+1. `git pull`s (or clones) into `/opt/ppchange_api`;
+2. creates the venv and `pip install`s `requirements.txt`;
+3. **overwrites `.env`** from secrets (`PPCHANGE_API_URL`, `EMAIL_LIST`,
+   `GOOGLE_CREDENTIALS_JSON`, plus hardcoded `GOOGLE_SHEET_NAME`/`WORKSHEET_NAME`/
+   `CREDENTIALS_PATH`);
+4. **overwrites the crontab** with both hourly jobs.
+
+### ⚠️ Gotchas — do not relearn these the hard way
+
+- **Never edit the server crontab by hand.** Every push rewrites it from
+  deploy.yml, silently discarding manual entries. Change the schedule **only** in
+  `deploy.yml` (and mirror it in `setup_cron.sh`), then push.
+- **The crontab cleanup matches by SCRIPT NAME, not by path.** It used to be
+  `grep -v "ppchange_api"`, which also deleted the `sync_auto.py` line because its
+  path (`/opt/ppchange_api`) contains that substring — so `sync_auto` silently
+  never ran. Keep the `grep -v "api_transactions.py" | grep -v "sync_auto.py"`
+  form. If you add a third job, add its own `grep -v` and `echo`.
+- **`.env` is regenerated from secrets on every deploy.** Editing `.env` on the
+  server does not stick. To add a new env var you must add it to the `.env`
+  here-doc in deploy.yml **and** create the matching GitHub secret. The optional
+  `AUTO_WORKSHEET_NAME` / `SUMMARY_WORKSHEET_NAME` are intentionally *not* in that
+  here-doc — the script falls back to code defaults; only add them if you need to
+  point at different tabs.
+- **A stale-looking sheet usually means a cron/deploy problem, not a code bug.**
+  First check: `crontab -l`, the log mtimes (`ls -l /var/log/ppchange_*.log`), and
+  the latest deploy run (`gh run list`).
+
+### Manual catch-up run
+
+```bash
+ssh <server>
+cd /opt/ppchange_api
+./venv/bin/python api_transactions.py   # append new rows to ppchange_transactions
+./venv/bin/python sync_auto.py          # full refresh + зведене C14/C15
+```
