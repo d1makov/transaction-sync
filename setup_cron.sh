@@ -1,28 +1,33 @@
 #!/bin/bash
 
-# Setup script for ppchange_api cron job
-# Run this manually on the server if needed
+# Setup script for the ppchange cron jobs. Run this manually on the server if
+# needed. The GitHub Actions deploy workflow installs the same schedule.
 
 DEPLOY_PATH="/opt/ppchange_api"
-LOG_FILE="/var/log/ppchange_api.log"
+API_LOG="/var/log/ppchange_api.log"
+AUTO_LOG="/var/log/ppchange_auto.log"
 
-# Create log file if it doesn't exist
-if [ ! -f "$LOG_FILE" ]; then
-    sudo touch "$LOG_FILE"
-    sudo chown $USER:$USER "$LOG_FILE"
-    echo "Created log file: $LOG_FILE"
-fi
+# Create log files if they don't exist
+for LOG_FILE in "$API_LOG" "$AUTO_LOG"; do
+    if [ ! -f "$LOG_FILE" ]; then
+        sudo touch "$LOG_FILE"
+        sudo chown $USER:$USER "$LOG_FILE"
+        echo "Created log file: $LOG_FILE"
+    fi
+done
 
-# Define the cron job (runs every 6 hours)
-# Use full path to venv python - avoids 'source' which doesn't work in cron's /bin/sh
-CRON_CMD="0 */6 * * * cd $DEPLOY_PATH && $DEPLOY_PATH/venv/bin/python api_transactions.py >> $LOG_FILE 2>&1"
+# Both jobs run hourly. Use full path to venv python - avoids 'source' which
+# doesn't work in cron's /bin/sh.
+CRON_API="0 * * * * cd $DEPLOY_PATH && $DEPLOY_PATH/venv/bin/python api_transactions.py >> $API_LOG 2>&1"
+CRON_AUTO="15 * * * * cd $DEPLOY_PATH && $DEPLOY_PATH/venv/bin/python sync_auto.py >> $AUTO_LOG 2>&1"
 
-# Remove existing ppchange_api cron entries and add the new one
-(crontab -l 2>/dev/null | grep -v "ppchange_api" ; echo "$CRON_CMD") | crontab -
+# Remove existing entries by SCRIPT NAME (not "ppchange_api" - that string is in
+# both paths and would wipe the sync_auto line too), then add both.
+(crontab -l 2>/dev/null | grep -v "api_transactions.py" | grep -v "sync_auto.py" ; \
+ echo "$CRON_API" ; echo "$CRON_AUTO") | crontab -
 
-echo "Cron job installed successfully!"
-echo "Schedule: Every 6 hours (at minute 0)"
-echo "Log file: $LOG_FILE"
+echo "Cron jobs installed successfully!"
+echo "Schedule: every hour (api_transactions at :00, sync_auto at :15)"
+echo "Logs: $API_LOG , $AUTO_LOG"
 echo ""
 echo "To verify, run: crontab -l"
-echo "To view logs, run: tail -f $LOG_FILE"

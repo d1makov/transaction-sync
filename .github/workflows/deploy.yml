@@ -58,12 +58,15 @@ jobs:
             echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' | base64 -d > credentials.json
             chmod 600 credentials.json
 
-            # Setup cron job if not already exists
-            CRON_CMD="0 */6 * * * cd /opt/ppchange_api && source venv/bin/activate && python api_transactions.py >> /var/log/ppchange_api.log 2>&1"
-            (crontab -l 2>/dev/null | grep -v "ppchange_api" ; echo "$CRON_CMD") | crontab -
+            # Setup cron jobs — both run hourly. Idempotent by SCRIPT NAME so the
+            # two entries never wipe each other (matching on "ppchange_api" used to
+            # delete the sync_auto line too, since its path contains that string).
+            CRON_API="0 * * * * cd /opt/ppchange_api && /opt/ppchange_api/venv/bin/python api_transactions.py >> /var/log/ppchange_api.log 2>&1"
+            CRON_AUTO="15 * * * * cd /opt/ppchange_api && /opt/ppchange_api/venv/bin/python sync_auto.py >> /var/log/ppchange_auto.log 2>&1"
+            (crontab -l 2>/dev/null | grep -v "api_transactions.py" | grep -v "sync_auto.py" ; echo "$CRON_API" ; echo "$CRON_AUTO") | crontab -
 
-            # Create log file if it doesn't exist
-            sudo touch /var/log/ppchange_api.log
-            sudo chown $USER:$USER /var/log/ppchange_api.log
+            # Create log files if they don't exist
+            sudo touch /var/log/ppchange_api.log /var/log/ppchange_auto.log
+            sudo chown $USER:$USER /var/log/ppchange_api.log /var/log/ppchange_auto.log
 
             echo "Deployment completed successfully!"
